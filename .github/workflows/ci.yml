@@ -27,17 +27,18 @@ jobs:
         docker compose config
         echo "✅ Docker Compose syntax is valid!"
         
-    - name: 📋 Validate Configuration Files
+    - name: 📋 Validate Prometheus config
       run: |
-        echo "🔍 Checking configuration files..."
-        
-        # Check Prometheus config
-        if [ -f "prometheus/prometheus.yml" ]; then
-          echo "✅ Prometheus config exists"
-          echo "📊 Prometheus targets:"
-          grep -A 5 "targets:" prometheus/prometheus.yml || true
-        fi
-        
+        echo "🔍 Validating Prometheus configuration..."
+
+        # Doğru promtool kullanımı
+        docker run --rm \
+          -v "$PWD/prometheus:/workspace" \
+          -w /workspace \
+          prom/prometheus:latest \
+          promtool check config prometheus.yml
+          
+        echo "✅ Prometheus config is valid!"
         # Check Nginx config  
         if [ -f "nginx/nginx.conf" ]; then
           echo "✅ Nginx config exists"
