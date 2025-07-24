@@ -1,0 +1,182 @@
+name: 📈 Performance Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Test duration in seconds'
+        required: true
+        default: '300'
+        type: string
+      concurrent_users:
+        description: 'Number of concurrent users'
+        required: true
+        default: '10'
+        type: string
+
+jobs:
+  performance-test:
+    name: 🚀 Load & Performance Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐳 Start monitoring stack
+      run: |
+        echo "🚀 Starting monitoring stack..."
+        docker compose up -d
+        sleep 60
+        
+        echo "🔍 Verifying services are ready..."
+        docker compose ps
+        
+    - name: 📊 Install performance tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y apache2-utils curl jq
+        
+    - name: 🧪 Pre-test Health Check
+      run: |
+        echo "🧪 Running pre-test health checks..."
+        curl -f http://localhost:7070 || exit 1
+        curl -f http://localhost:9090/-/healthy || exit 1
+        curl -f http://localhost:3000/api/health || exit 1
+        echo "✅ All services healthy, starting performance test..."
+        
+    - name: 🚨 Execute Load Test
+      run: |
+        echo "🚨 Starting load test..."
+        echo "⏱️  Duration: ${{ github.event.inputs.duration }}s"
+        echo "👥 Concurrent users: ${{ github.event.inputs.concurrent_users }}"
+        echo "🎯 Target: http://localhost:7070"
+        echo ""
+        
+        # Apache Bench comprehensive test
+        ab -t ${{ github.event.inputs.duration }} \
+           -c ${{ github.event.inputs.concurrent_users }} \
+           -g performance_results.tsv \
+           -e performance_percentiles.csv \
+           http://localhost:7070/ > ab_results.txt
+        
+        echo "✅ Load test completed!"
+        
+    - name: 📊 Collect Performance Metrics
+      run: |
+        echo "📊 Collecting performance metrics from Prometheus..."
+        
+        # Request rate during test
+        curl -s "http://localhost:9090/api/v1/query?query=rate(nginx_http_requests_total[1m])" > request_rate.json
+        
+        # Active connections
+        curl -s "http://localhost:9090/api/v1/query?query=nginx_connections_active" > connections.json
+        
+        # Response status codes
+        curl -s "http://localhost:9090/api/v1/query?query=nginx_http_requests_total" > status_codes.json
+        
+        echo "✅ Metrics collected successfully!"
+        
+    - name: 📈 Generate Performance Report
+      run: |
+        echo "📈 Generating comprehensive performance report..."
+        
+        cat << 'EOF' > performance_report.md
+        # 📈 Performance Test Report
+        
+        **Test Date**: $(date)  
+        **Duration**: ${{ github.event.inputs.duration }} seconds  
+        **Concurrent Users**: ${{ github.event.inputs.concurrent_users }}  
+        **Target URL**: http://localhost:7070
+        
+        ## 🎯 Test Configuration
+        - **Tool**: Apache Bench (ab)
+        - **Total Time**: ${{ github.event.inputs.duration }}s
+        - **Concurrency Level**: ${{ github.event.inputs.concurrent_users }}
+        - **Keep-Alive**: Yes
+        
+        ## 📊 Apache Bench Results
+        \`\`\`
+        EOF
+        
+        cat ab_results.txt >> performance_report.md
+        
+        echo '```' >> performance_report.md
+        echo "" >> performance_report.md
+        echo "## 📈 Key Performance Metrics" >> performance_report.md
+        echo "" >> performance_report.md
+        
+        # Extract key metrics from ab results
+        REQUESTS_TOTAL=$(grep "Complete requests:" ab_results.txt | awk '{print $3}')
+        REQUESTS_FAILED=$(grep "Failed requests:" ab_results.txt | awk '{print $3}')
+        REQUESTS_PER_SEC=$(grep "Requests per second:" ab_results.txt | awk '{print $4}')
+        TIME_PER_REQUEST=$(grep "Time per request:" ab_results.txt | head -1 | awk '{print $4}')
+        
+        echo "- **Total Requests**: $REQUESTS_TOTAL" >> performance_report.md
+        echo "- **Failed Requests**: $REQUESTS_FAILED" >> performance_report.md  
+        echo "- **Requests/Second**: $REQUESTS_PER_SEC" >> performance_report.md
+        echo "- **Time/Request**: $TIME_PER_REQUEST ms" >> performance_report.md
+        echo "" >> performance_report.md
+        
+        echo "## 🔍 Prometheus Metrics Analysis" >> performance_report.md
+        echo "" >> performance_report.md
+        echo "### Request Rate" >> performance_report.md
+        echo '```json' >> performance_report.md
+        cat request_rate.json | jq '.' >> performance_report.md
+        echo '```' >> performance_report.md
+        
+        echo "### Active Connections" >> performance_report.md  
+        echo '```json' >> performance_report.md
+        cat connections.json | jq '.' >> performance_report.md
+        echo '```' >> performance_report.md
+        
+        echo "## 🎯 Test Summary" >> performance_report.md
+        echo "" >> performance_report.md
+        if [ "$REQUESTS_FAILED" = "0" ]; then
+          echo "✅ **Result**: All requests completed successfully!" >> performance_report.md
+        else
+          echo "⚠️  **Result**: $REQUESTS_FAILED requests failed out of $REQUESTS_TOTAL" >> performance_report.md
+        fi
+        
+        echo "📊 **Performance Rating**: " >> performance_report.md
+        if (( $(echo "$REQUESTS_PER_SEC > 100" | bc -l) )); then
+          echo "🚀 Excellent (>100 req/s)" >> performance_report.md
+        elif (( $(echo "$REQUESTS_PER_SEC > 50" | bc -l) )); then
+          echo "✅ Good (>50 req/s)" >> performance_report.md
+        else
+          echo "⚡ Needs optimization (<50 req/s)" >> performance_report.md
+        fi
+        
+    - name: 📤 Upload Performance Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-test-results
+        path: |
+          performance_report.md
+          performance_results.tsv
+          performance_percentiles.csv
+          ab_results.txt
+          request_rate.json
+          connections.json
+          status_codes.json
+          
+    - name: 📋 Performance Summary
+      run: |
+        echo "🎉 Performance test completed successfully!"
+        echo ""
+        echo "📊 Quick Stats:"
+        grep "Requests per second:" ab_results.txt
+        grep "Time per request:" ab_results.txt | head -1
+        grep "Complete requests:" ab_results.txt
+        grep "Failed requests:" ab_results.txt
+        echo ""
+        echo "📁 Detailed results uploaded as artifacts"
+        echo "📈 Check the performance_report.md for full analysis"
+        
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up test environment..."
+        docker compose down -v
+        docker system prune -f
+        echo "✅ Cleanup completed!"

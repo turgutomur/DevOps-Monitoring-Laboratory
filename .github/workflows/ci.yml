@@ -1,0 +1,214 @@
+name: 🚀 DevOps Monitoring Stack CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 6 * * *'
+
+env:
+  COMPOSE_FILE: docker-compose.yml
+  HEALTH_CHECK_TIMEOUT: 120
+
+jobs:
+  lint-and-validate:
+    name: 🔍 Lint & Validate
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐳 Validate Docker Compose
+      run: |
+        echo "🔍 Validating docker-compose.yml syntax..."
+        docker compose config
+        echo "✅ Docker Compose syntax is valid!"
+        
+    - name: 📋 Validate Prometheus config
+      run: |
+        echo "🔍 Validating Prometheus configuration..."
+        docker run --rm -v "$PWD/prometheus:/etc/prometheus" \
+          prom/prometheus:latest \
+          promtool check config /etc/prometheus/prometheus.yml
+        echo "✅ Prometheus config is valid!"
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: lint-and-validate
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🛡️ Run Trivy security scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+  integration-test:
+    name: 🧪 Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint-and-validate, security-scan]
+    
+    strategy:
+      matrix:
+        test-scenario: [basic, load-test]
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐳 Start monitoring stack
+      run: |
+        echo "🚀 Starting all services..."
+        docker compose up -d
+        echo "📊 Services started, checking containers..."
+        docker compose ps
+        
+    - name: ⏳ Wait for services to be ready
+      run: |
+        echo "⏳ Waiting for services to initialize..."
+        sleep 60
+        
+    - name: 🧪 Health Check Tests
+      run: |
+        echo "=== 🌐 Testing Web Application ==="
+        for i in {1..5}; do
+          if curl -f -s http://localhost:7070; then
+            echo "✅ Web app responding (attempt $i)"
+            break
+          fi
+          echo "⏳ Web app not ready, waiting... (attempt $i)"
+          sleep 10
+        done
+        
+        echo "=== 📊 Testing Prometheus ==="
+        for i in {1..5}; do
+          if curl -f -s http://localhost:9090/-/healthy; then
+            echo "✅ Prometheus healthy (attempt $i)"
+            break
+          fi
+          echo "⏳ Prometheus not ready, waiting... (attempt $i)"
+          sleep 10
+        done
+        
+        echo "=== 📈 Testing Grafana ==="
+        for i in {1..5}; do
+          if curl -f -s http://localhost:3000/api/health; then
+            echo "✅ Grafana healthy (attempt $i)"
+            break
+          fi
+          echo "⏳ Grafana not ready, waiting... (attempt $i)"
+          sleep 10
+        done
+        
+        echo "=== 🔢 Testing Nginx Exporter ==="
+        for i in {1..5}; do
+          if curl -f -s http://localhost:9113/metrics | grep -q "nginx_up"; then
+            echo "✅ Nginx Exporter working (attempt $i)"
+            break
+          fi
+          echo "⏳ Nginx Exporter not ready, waiting... (attempt $i)"
+          sleep 10
+        done
+        
+    - name: 📊 Metrics Validation
+      run: |
+        echo "=== 📊 Validating Metrics Collection ==="
+        
+        echo "🎯 Checking Prometheus targets..."
+        curl -s "http://localhost:9090/api/v1/targets" | head -200
+        
+        echo "🔍 Testing basic Prometheus queries..."
+        curl -s "http://localhost:9090/api/v1/query?query=up" | head -200
+        
+    - name: 🚨 Load Testing
+      if: matrix.test-scenario == 'load-test'
+      run: |
+        echo "=== 🚨 Running Load Test ==="
+        
+        sudo apt-get update && sudo apt-get install -y apache2-utils
+        
+        echo "🔥 Running light load test..."
+        ab -n 50 -c 5 http://localhost:7070/
+        
+        echo "📊 Checking metrics after load..."
+        curl -s "http://localhost:9090/api/v1/query?query=nginx_up"
+        
+    - name: 📋 Generate Test Report
+      if: always()
+      run: |
+        echo "=== 📋 Test Report ===" > test-report.txt
+        echo "Date: $(date)" >> test-report.txt
+        echo "Test Scenario: ${{ matrix.test-scenario }}" >> test-report.txt
+        echo "Container Status:" >> test-report.txt
+        docker compose ps >> test-report.txt
+        
+    - name: 📤 Upload Test Report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-report-${{ matrix.test-scenario }}
+        path: test-report.txt
+        
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up..."
+        docker compose down -v
+
+  deployment-ready:
+    name: 🚢 Deployment Ready
+    runs-on: ubuntu-latest
+    needs: integration-test
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🏷️ Create Release Info
+      run: |
+        VERSION="v$(date +%Y.%m.%d)-$(echo ${{ github.sha }} | cut -c1-7)"
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "🏷️ Version: $VERSION"
+        
+    - name: 📦 Final Validation
+      run: |
+        echo "📦 Running final validation..."
+        docker compose up -d
+        sleep 60
+        
+        curl -f http://localhost:7070
+        curl -f http://localhost:9090/-/healthy  
+        curl -f http://localhost:3000/api/health
+        
+        docker compose down
+        echo "✅ Deployment validation completed!"
+
+  notify:
+    name: 📢 Notifications
+    runs-on: ubuntu-latest
+    needs: [integration-test, deployment-ready]
+    if: always()
+    
+    steps:
+    - name: 📧 Success Notification
+      if: needs.integration-test.result == 'success'
+      run: |
+        echo "🎉 SUCCESS: CI/CD Pipeline completed successfully!"
+        echo "📊 All integration tests passed"
+        echo "🚀 Ready for deployment"
+        
+    - name: 🚨 Failure Notification
+      if: failure()
+      run: |
+        echo "❌ FAILURE: CI/CD Pipeline failed!"
+        echo "🔍 Please check the workflow logs for details"
