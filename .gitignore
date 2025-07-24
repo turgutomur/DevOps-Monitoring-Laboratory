@@ -1,0 +1,19 @@
+# Docker volumes
+grafana-storage/
+
+# Temporary files
+*.save
+*.tmp
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Environment files (if any)
+.env
+.env.local

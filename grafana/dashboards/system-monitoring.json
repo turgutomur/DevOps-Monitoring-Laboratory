@@ -1,0 +1,17 @@
+{
+  "dashboard": {
+    "title": "System Monitoring",
+    "panels": [
+      {
+        "title": "Prometheus Targets",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up",
+            "legendFormat": "{{instance}}"
+          }
+        ]
+      }
+    ]
+  }
+}
