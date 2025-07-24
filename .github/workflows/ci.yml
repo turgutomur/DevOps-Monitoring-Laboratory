@@ -132,31 +132,16 @@ jobs:
             echo "⏳ Prometheus not ready, waiting... (attempt $i/$MAX_ATTEMPTS)"
             sleep $SLEEP_TIME
           done
-          
-          echo "=== 📈 Testing Grafana (Extended) ==="
-          grafana_success=false
-          for i in $(seq 1 20); do
-            if curl -f -s -m 10 http://localhost:3000/api/health; then
+          echo "=== 📈 Testing Grafana ==="
+          for i in {1..5}; do
+            if curl -f -s http://localhost:3000/api/health; then
               echo "✅ Grafana healthy (attempt $i)"
-              grafana_success=true
               break
             fi
-            echo "⏳ Grafana not ready, waiting... (attempt $i/20)"
-            
-            # Log check every 5 attempts
-            if [ $((i % 5)) -eq 0 ]; then
-              echo "🔍 Grafana status check:"
-              docker compose ps grafana
-              docker compose logs --tail=10 grafana | grep -E "(error|Error|ready|started|listening)"
-            fi
-            sleep 30
+            echo "⏳ Grafana not ready, waiting... (attempt $i)"
+            sleep 10
           done
           
-          if [ "$grafana_success" = false ]; then
-            echo "⚠️ Grafana health check failed, but continuing with reduced scope..."
-            echo "📊 Final Grafana logs:"
-            docker compose logs grafana | tail -50
-          fi
           
           echo "=== 🔢 Testing Nginx Exporter ==="
           for i in $(seq 1 $MAX_ATTEMPTS); do
