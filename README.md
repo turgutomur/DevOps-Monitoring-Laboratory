@@ -15,5 +15,5 @@ cd devops-monitoring-lab
 # Start all services
 docker compose up -d
 
-# Check service statuss
+# Check service status
 docker ps
