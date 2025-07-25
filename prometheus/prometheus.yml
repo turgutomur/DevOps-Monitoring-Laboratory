@@ -1,0 +1,57 @@
+# Prometheus configuration file
+# This file defines the global settings and scrape targets for Prometheus
+
+global:
+  scrape_interval: 15s # How frequently to scrape targets by default
+  evaluation_interval: 15s # How frequently to evaluate rules
+  scrape_timeout: 10s # How long until a scrape request times out
+
+# Alertmanager configuration (optional - can be added later)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Rule files (optional - for alerting rules)
+# rule_files:
+#   - "alert_rules.yml"
+
+# Scrape configuration - defines what targets to scrape
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # Web Application metrics
+  - job_name: 'webapp'
+    static_configs:
+      - targets: ['webapp:7070']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Nginx Exporter metrics
+  - job_name: 'nginx-exporter'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Node Exporter (if you want to add system metrics later)
+  # - job_name: 'node-exporter'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']
+  #   metrics_path: /metrics
+  #   scrape_interval: 30s
+
+  # cAdvisor (if you want to add container metrics later)
+  # - job_name: 'cadvisor'
+  #   static_configs:
+  #     - targets: ['cadvisor:8080']
+  #   metrics_path: /metrics
+  #   scrape_interval: 30s
